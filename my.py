@@ -3,7 +3,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 def download_transcript():
     # --- CONFIGURATION ---
-    VIDEO_ID = "dQw4w9WgXcQ" 
+    VIDEO_ID = "YED8zVXc6As" 
     OUTPUT_FILE = "transcript.txt"
     # ---------------------
 
