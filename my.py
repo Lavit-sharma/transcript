@@ -10,16 +10,17 @@ def download_transcript():
     print(f"Attempting to download transcript for: {VIDEO_ID}")
     
     try:
-        # 1. Initialize the API instance
+        # 1. Initialize API
         api = YouTubeTranscriptApi()
         
-        # 2. Use the new .fetch() method
-        # Note: fetch returns a list of dictionaries, just like the old method
+        # 2. Fetch the transcript (Returns a list of FetchedTranscriptSnippet objects)
         transcript_list = api.fetch(VIDEO_ID)
         
-        # 3. Process and save
-        full_text = "\n".join([entry['text'] for entry in transcript_list])
+        # 3. FIX: Access as object attributes (.text) instead of dict keys (['text'])
+        # The new objects have .text, .start, and .duration attributes
+        full_text = "\n".join([snippet.text for snippet in transcript_list])
         
+        # 4. Save to file
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(full_text)
             
