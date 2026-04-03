@@ -1,7 +1,7 @@
 name: Auto Download Transcript
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Manual Run Button
   push:
     branches: [ main ]
 
@@ -25,9 +25,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install "youtube-transcript-api>=1.2.4"
 
-      # THIS STEP CONVERTS YOUR SECRET TO A FILE
-      - name: Create Cookies File from Secret
-        run: echo '${{ secrets.YOUTUBE_JSON }}' > cookies.json
+      # Securely create cookies.json from your GitHub Secret
+      - name: Create Cookies File
+        run: |
+          cat <<EOF > cookies.json
+          ${{ secrets.YOUTUBE_JSON }}
+          EOF
 
       - name: Execute Script
         run: python my.py
@@ -37,12 +40,12 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # We add -A but we should EXCLUDE cookies.json so it never gets committed to git
-          git add transcript.txt
-          
-          if git diff --staged --quiet; then
-            echo "No changes in transcript."
-          else
-            git commit -m "Updated transcript via Secure Secrets"
+          # Only add the transcript, never the cookies!
+          if [ -f transcript.txt ]; then
+            git add transcript.txt
+            git commit -m "Automated transcript update" || echo "No changes to commit"
             git push
+          else
+            echo "transcript.txt was not generated."
+            exit 1
           fi
