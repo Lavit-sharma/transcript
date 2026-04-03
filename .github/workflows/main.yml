@@ -1,10 +1,10 @@
-name: Get Transcript via yt-dlp
+name: Download YouTube Transcript
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows you to click "Run" manually
 
 jobs:
-  download:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -13,18 +13,26 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
       - name: Install yt-dlp
         run: |
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
 
-      # This decodes the Base64 string back into a perfectly formatted file
       - name: Create Cookies File
-        run: |
-          echo "${{ secrets.YOUTUBE_COOKIES_BASE64 }}" | base64 --decode > cookies.txt
+        env:
+          COOKIE_JSON_DATA: ${{ secrets.YOUTUBE_JSON }}
+        run: python convert_cookies.py
 
       - name: Download Transcript
         run: |
+          # --skip-download: Don't download video
+          # --write-auto-subs: Get captions
+          # --sub-lang en: Target English
           yt-dlp --cookies cookies.txt \
                  --skip-download \
                  --write-auto-subs \
@@ -33,21 +41,20 @@ jobs:
                  "https://www.youtube.com/watch?v=YED8zVXc6As" \
                  -o "transcript"
 
-      - name: Commit Results
+      - name: Commit and Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Find the generated .srt file
+          # Find any .srt file generated
           FILE=$(ls transcript*.srt | head -n 1)
           
           if [ -f "$FILE" ]; then
-            # Rename it to a simple name
             mv "$FILE" transcript.srt
             git add transcript.srt
-            git commit -m "Downloaded transcript via yt-dlp (Base64 Fix)"
+            git commit -m "Updated transcript.srt"
             git push
           else
-            echo "No transcript file found. Check if the video has captions."
+            echo "Transcript not found. Checking for video accessibility..."
             exit 1
           fi
