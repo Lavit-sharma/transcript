@@ -12,35 +12,44 @@ def download_transcript():
     print(f"Attempting to download transcript for: {VIDEO_ID}")
     
     try:
-        # Check if cookies exist from your GitHub Secret
+        # 1. Check for cookies to bypass YouTube IP block
         if os.path.exists(COOKIE_FILE):
             print("Using cookies.json for authentication...")
-            # Use the static method directly - this is the standard way
+            # Using the most stable static method
             transcript_list = YouTubeTranscriptApi.get_transcript(VIDEO_ID, cookies=COOKIE_FILE)
         else:
             print("Warning: cookies.json not found. Requesting without authentication...")
             transcript_list = YouTubeTranscriptApi.get_transcript(VIDEO_ID)
         
-        # In the static method, it usually returns a list of dictionaries
-        # We handle both formats (Object vs Dict) just to be 100% safe
+        # 2. Handle both Dictionary (v1.2.1) and Object (v1.2.4+) return types
         full_text = ""
         for entry in transcript_list:
-            if hasattr(entry, 'text'): # If it's an object
+            if hasattr(entry, 'text'):  # New Object format (.text)
                 full_text += f"{entry.text}\n"
-            else: # If it's a dictionary (standard)
+            elif isinstance(entry, dict): # Old Dictionary format (['text'])
                 full_text += f"{entry['text']}\n"
         
+        # 3. Save the result
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(full_text)
             
         print(f"Success! Transcript saved to {OUTPUT_FILE}")
 
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        # Check for specific cookie issues
-        if "CookiesConfig" in str(e):
-             print("Check if your YOUTUBE_JSON secret is a valid JSON list.")
-        sys.exit(1)
+        print(f"Primary method failed: {str(e)}")
+        # FALLBACK: If the static method fails, try the Instance method (fetch)
+        try:
+            print("Attempting fallback fetch method...")
+            api = YouTubeTranscriptApi()
+            # If cookies are required for fetch in your specific version
+            t_list = api.fetch(VIDEO_ID, cookies=COOKIE_FILE) if os.path.exists(COOKIE_FILE) else api.fetch(VIDEO_ID)
+            f_text = "\n".join([getattr(x, 'text', x.get('text')) for x in t_list])
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+                f.write(f_text)
+            print("Success on fallback!")
+        except Exception as e2:
+            print(f"Final Failure: {str(e2)}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     download_transcript()
