@@ -3,33 +3,33 @@ import os
 from youtube_transcript_api import YouTubeTranscriptApi
 
 def download_transcript():
-    # --- CONFIGURATION ---
     VIDEO_ID = "YED8zVXc6As" 
     OUTPUT_FILE = "transcript.txt"
     COOKIE_FILE = "cookies.json"
-    # ---------------------
 
     print(f"Attempting to download transcript for: {VIDEO_ID}")
     
     try:
-        # 1. Initialize API with cookies (Modern 2026 way)
+        api = YouTubeTranscriptApi()
+        
+        # In this version, we use list() to handle authentication and finding transcripts
         if os.path.exists(COOKIE_FILE):
-            print("Cookies found. Initializing API with authentication...")
-            # THE FIX: Cookies go inside the parenthesis here
-            api = YouTubeTranscriptApi(cookies=COOKIE_FILE)
+            print("Using list() with cookies for authentication...")
+            # list() returns a TranscriptList object
+            transcript_list_obj = api.list(VIDEO_ID, cookies=COOKIE_FILE)
         else:
             print("No cookies found. Proceeding without authentication...")
-            api = YouTubeTranscriptApi()
+            transcript_list_obj = api.list(VIDEO_ID)
         
-        # 2. Fetch the transcript using the instance
-        # THE FIX: No cookies argument here anymore
-        transcript_list = api.fetch(VIDEO_ID)
+        # Find the best transcript (manually created or auto-generated)
+        transcript = transcript_list_obj.find_transcript(['en', 'hi'])
         
-        # 3. Extract text from the snippet objects
-        # The objects have a .text attribute
-        full_text = "\n".join([snippet.text for snippet in transcript_list])
+        # Fetch the actual data (this returns the snippet objects)
+        data = transcript.fetch()
         
-        # 4. Save to file
+        # Access the .text attribute
+        full_text = "\n".join([snippet.text for snippet in data])
+        
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(full_text)
             
@@ -37,12 +37,6 @@ def download_transcript():
 
     except Exception as e:
         print(f"Error: {str(e)}")
-        # Quick debug: list what the object can actually do
-        try:
-            temp_api = YouTubeTranscriptApi()
-            print(f"Available methods: {dir(temp_api)}")
-        except:
-            pass
         sys.exit(1)
 
 if __name__ == "__main__":
