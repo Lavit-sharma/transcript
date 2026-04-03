@@ -1,52 +1,48 @@
 name: Auto Download Transcript
 
 on:
-  workflow_dispatch: # Manual run button
+  workflow_dispatch:
   push:
-    branches: [ main ] # Runs on every push
+    branches: [ main ]
 
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    
-    # 1. CRITICAL: Give the bot permission to write to your repo
     permissions:
       contents: write
 
     steps:
-      # 2. Check out the code so the script is available
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 3. Setup Python environment
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 4. Install the library (using quotes to avoid file creation errors)
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install "youtube-transcript-api>=1.2.4"
 
-      # 5. Run your script (Ensure your script is named my.py)
+      # THIS STEP CONVERTS YOUR SECRET TO A FILE
+      - name: Create Cookies File from Secret
+        run: echo '${{ secrets.YOUTUBE_JSON }}' > cookies.json
+
       - name: Execute Script
         run: python my.py
 
-      # 6. Push the generated transcript.txt back to GitHub
       - name: Commit and Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Add all changes (including the new transcript.txt)
-          git add -A 
+          # We add -A but we should EXCLUDE cookies.json so it never gets committed to git
+          git add transcript.txt
           
-          # Check if there are actually changes to commit to avoid errors
           if git diff --staged --quiet; then
-            echo "No changes to commit"
+            echo "No changes in transcript."
           else
-            git commit -m "Automated update: Added/Updated transcript.txt"
+            git commit -m "Updated transcript via Secure Secrets"
             git push
           fi
