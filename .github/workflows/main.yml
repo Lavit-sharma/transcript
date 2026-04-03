@@ -23,8 +23,8 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # FORCING an older stable version that has the correct attributes
-          pip install youtube-transcript-api==1.2.2 
+          # FORCING the most stable version for cookie-based bypass
+          pip install youtube-transcript-api==1.2.1
 
       - name: Create Cookies File
         run: |
@@ -42,9 +42,9 @@ jobs:
           
           if [ -f transcript.txt ]; then
             git add transcript.txt
-            git commit -m "Automated update via stable version 1.2.2" || echo "No changes"
+            git commit -m "Updated transcript via Stable v1.2.1" || echo "No changes"
             git push
           else
-            echo "Failed to generate transcript.txt"
+            echo "transcript.txt not found."
             exit 1
           fi
