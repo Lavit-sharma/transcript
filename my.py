@@ -1,5 +1,5 @@
 import sys
-import youtube_transcript_api
+from youtube_transcript_api import YouTubeTranscriptApi
 
 def download_transcript():
     # --- CONFIGURATION ---
@@ -10,15 +10,16 @@ def download_transcript():
     print(f"Attempting to download transcript for: {VIDEO_ID}")
     
     try:
-        # Accessing the class through the module to avoid attribute errors
-        # This is the safest way to call it in automation environments
-        transcript_list = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(VIDEO_ID)
+        # 1. Initialize the API instance
+        api = YouTubeTranscriptApi()
         
-        # Extract text and join with newlines
-        lines = [entry['text'] for entry in transcript_list]
-        full_text = "\n".join(lines)
+        # 2. Use the new .fetch() method
+        # Note: fetch returns a list of dictionaries, just like the old method
+        transcript_list = api.fetch(VIDEO_ID)
         
-        # Write to file
+        # 3. Process and save
+        full_text = "\n".join([entry['text'] for entry in transcript_list])
+        
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(full_text)
             
@@ -26,7 +27,6 @@ def download_transcript():
 
     except Exception as e:
         print(f"Error occurred: {str(e)}")
-        # Exit with error code 1 so GitHub knows it failed
         sys.exit(1)
 
 if __name__ == "__main__":
