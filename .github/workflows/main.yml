@@ -1,64 +1,29 @@
-name: Download YouTube Transcript
+name: Fetch Transcript
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  run-script:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout Code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Install yt-dlp
-        run: |
-          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-          sudo chmod a+rx /usr/local/bin/yt-dlp
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Create Cookies File
-        env:
-          COOKIE_JSON_DATA: ${{ secrets.YOUTUBE_JSON }}
-        run: python convert_cookies.py
+      - name: Run script
+        run: python my.py "https://www.youtube.com/watch?v=huW5sxhm3ow"
 
-      - name: Download Transcript
-        run: |
-          # Using 'web,ios' allows cookies to be used while falling back to mobile logic
-          # --list-subs helps us see exactly what YouTube is offering in the logs
-          yt-dlp --cookies cookies.txt \
-                 --skip-download \
-                 --ignore-no-formats-error \
-                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" \
-                 --extractor-args "youtube:player_client=web,ios;player_skip=webpage,configs" \
-                 --write-auto-subs \
-                 --sub-lang "en.*,hi.*" \
-                 --convert-subs srt \
-                 "https://www.youtube.com/watch?v=YED8zVXc6As" \
-                 -o "transcript"
-
-      - name: Commit and Push
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Find any .srt file generated
-          FILE=$(find . -name "transcript*.srt" | head -n 1)
-          
-          if [ -n "$FILE" ] && [ -f "$FILE" ]; then
-            echo "Found file: $FILE"
-            mv "$FILE" transcript.srt
-            git add transcript.srt
-            git commit -m "Bypassed PO Token using Hybrid Client"
-            git push
-          else
-            echo "No subtitle file found. Trying listing available subs for debug:"
-            yt-dlp --cookies cookies.txt --list-subs "https://www.youtube.com/watch?v=YED8zVXc6As"
-            exit 1
-          fi
+      - name: Upload transcript
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcript
+          path: transcript.txt
