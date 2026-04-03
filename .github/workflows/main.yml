@@ -1,7 +1,7 @@
 name: Auto Download Transcript
 
 on:
-  workflow_dispatch: # Manual Run Button
+  workflow_dispatch:
   push:
     branches: [ main ]
 
@@ -23,9 +23,8 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "youtube-transcript-api>=1.2.4"
+          pip install youtube-transcript-api==1.2.4
 
-      # Securely create cookies.json from your GitHub Secret
       - name: Create Cookies File
         run: |
           cat <<EOF > cookies.json
@@ -40,12 +39,11 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Only add the transcript, never the cookies!
           if [ -f transcript.txt ]; then
             git add transcript.txt
-            git commit -m "Automated transcript update" || echo "No changes to commit"
+            git commit -m "Automated update via 2026 API" || echo "No changes"
             git push
           else
-            echo "transcript.txt was not generated."
+            echo "Failed to generate transcript.txt"
             exit 1
           fi
