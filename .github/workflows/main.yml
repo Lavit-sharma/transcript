@@ -30,15 +30,15 @@ jobs:
 
       - name: Download Transcript
         run: |
-          # Changed client to 'ios' which is currently more reliable for transcripts
-          # Removed 'web' client to avoid PO Token requirement errors
+          # Using 'web,ios' allows cookies to be used while falling back to mobile logic
+          # --list-subs helps us see exactly what YouTube is offering in the logs
           yt-dlp --cookies cookies.txt \
                  --skip-download \
                  --ignore-no-formats-error \
-                 --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" \
-                 --extractor-args "youtube:player_client=ios" \
+                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" \
+                 --extractor-args "youtube:player_client=web,ios;player_skip=webpage,configs" \
                  --write-auto-subs \
-                 --sub-lang "en.*" \
+                 --sub-lang "en.*,hi.*" \
                  --convert-subs srt \
                  "https://www.youtube.com/watch?v=YED8zVXc6As" \
                  -o "transcript"
@@ -48,16 +48,17 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Use a broad search for the srt file
+          # Find any .srt file generated
           FILE=$(find . -name "transcript*.srt" | head -n 1)
           
           if [ -n "$FILE" ] && [ -f "$FILE" ]; then
-            echo "Moving $FILE to transcript.srt"
+            echo "Found file: $FILE"
             mv "$FILE" transcript.srt
             git add transcript.srt
-            git commit -m "Bypassed PO Token using ios client"
+            git commit -m "Bypassed PO Token using Hybrid Client"
             git push
           else
-            echo "No subtitle file found."
+            echo "No subtitle file found. Trying listing available subs for debug:"
+            yt-dlp --cookies cookies.txt --list-subs "https://www.youtube.com/watch?v=YED8zVXc6As"
             exit 1
           fi
