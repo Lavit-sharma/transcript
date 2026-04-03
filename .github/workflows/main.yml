@@ -18,27 +18,36 @@ jobs:
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
 
+      # This version uses a specialized way to write the secret without adding extra lines
       - name: Create Cookies File
         run: |
-          cat <<EOF > cookies.txt
-          ${{ secrets.YOUTUBE_COOKIES_NETSCAPE }}
-          EOF
+          echo "${{ secrets.YOUTUBE_COOKIES_NETSCAPE }}" > cookies.txt
+          # Remove any leading/trailing empty lines that might break the format
+          sed -i '/^$/d' cookies.txt
 
       - name: Download Transcript
         run: |
-          # --skip-download: Don't download the video
-          # --write-auto-subs: Get auto-generated captions if manual ones aren't there
-          # --sub-lang en: Get English
-          # --convert-subs srt: Save as a readable format
-          yt-dlp --cookies cookies.txt --skip-download --write-auto-subs --sub-lang en --convert-subs srt "https://www.youtube.com/watch?v=YED8zVXc6As" -o "transcript"
+          # We use --cookies to authenticate
+          # We use --write-subs (manual) and --write-auto-subs (automatic)
+          yt-dlp --cookies cookies.txt \
+                 --skip-download \
+                 --write-subs \
+                 --write-auto-subs \
+                 --sub-lang "en.*" \
+                 --convert-subs srt \
+                 "https://www.youtube.com/watch?v=YED8zVXc6As" \
+                 -o "transcript"
 
       - name: Commit Results
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # Check for .srt file
-          if [ -f transcript.en.srt ]; then
-            git add transcript.en.srt
+          # Check for any .srt file (could be transcript.en.srt or transcript.en-US.srt)
+          if ls transcript.*.srt 1> /dev/null 2>&1; then
+            git add transcript.*.srt
             git commit -m "Downloaded transcript via yt-dlp"
             git push
+          else
+            echo "No transcript file found."
+            exit 1
           fi
