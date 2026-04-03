@@ -1,60 +1,67 @@
+import requests
+from bs4 import BeautifulSoup
+import urllib.parse
 import sys
-import time
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
-def scrape_youtube_transcript(url):
-    chrome_options = Options()
-    chrome_options.add_argument("--headless") # Run without a window
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+def get_video_id(youtube_url):
+    """Extract video ID from YouTube URL"""
+    parsed = urllib.parse.urlparse(youtube_url)
     
-    # Initialize driver
-    driver = webdriver.Chrome(options=chrome_options)
+    if parsed.hostname == "youtu.be":
+        return parsed.path[1:]
     
-    try:
-        print(f"Opening URL: {url}")
-        driver.get(url)
-        wait = WebDriverWait(driver, 20)
+    if "youtube.com" in parsed.hostname:
+        query = urllib.parse.parse_qs(parsed.query)
+        return query.get("v", [None])[0]
+    
+    return None
 
-        # 1. Click "More" in the description to reveal the transcript button
-        expand_button = wait.until(EC.element_to_be_clickable((By.ID, "expand")))
-        expand_button.click()
-        time.sleep(2)
 
-        # 2. Click "Show transcript" button
-        # This button is usually inside the primary info renderer
-        transcript_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@aria-label='Show transcript']")))
-        transcript_button.click()
-        print("Transcript window opened.")
-        time.sleep(3)
+def fetch_transcript(youtube_url):
+    video_id = get_video_id(youtube_url)
 
-        # 3. Scrape all transcript lines
-        segments = driver.find_elements(By.CSS_SELECTOR, "ytd-transcript-segment-renderer")
-        
-        transcript_text = ""
-        for segment in segments:
-            text = segment.find_element(By.CLASS_NAME, "segment-text").text
-            transcript_text += text + "\n"
+    if not video_id:
+        print("❌ Invalid YouTube URL")
+        return None
 
-        if transcript_text:
-            with open("transcript.txt", "w", encoding="utf-8") as f:
-                f.write(transcript_text)
-            print("Success! Transcript saved.")
-        else:
-            print("Failed to find transcript segments.")
+    # Build dynamic Tactiq URL
+    tactiq_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
 
-    except Exception as e:
-        print(f"Error: {e}")
-        driver.save_screenshot("error_screenshot.png") # Debugging
-        sys.exit(1)
-    finally:
-        driver.quit()
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    response = requests.get(tactiq_url, headers=headers)
+
+    if response.status_code != 200:
+        print("❌ Failed to fetch page")
+        return None
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    # Extract transcript (this may change if site structure changes)
+    transcript_blocks = soup.find_all("p")
+
+    transcript = "\n".join([p.get_text(strip=True) for p in transcript_blocks])
+
+    return transcript
+
 
 if __name__ == "__main__":
-    target_url = "https://www.youtube.com/watch?v=YED8zVXc6As"
-    scrape_youtube_transcript(target_url)
+    # Example: pass URL as argument OR hardcode for testing
+    if len(sys.argv) > 1:
+        youtube_url = sys.argv[1]
+    else:
+        youtube_url = "https://www.youtube.com/watch?v=huW5sxhm3ow"
+
+    transcript = fetch_transcript(youtube_url)
+
+    if transcript:
+        print("\n===== TRANSCRIPT =====\n")
+        print(transcript)
+
+        # Save to file (useful for GitHub Actions)
+        with open("transcript.txt", "w", encoding="utf-8") as f:
+            f.write(transcript)
+
+        print("\n✅ Saved to transcript.txt")
