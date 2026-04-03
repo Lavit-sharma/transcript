@@ -1,7 +1,7 @@
 name: Download YouTube Transcript
 
 on:
-  workflow_dispatch: # Allows you to click "Run" manually
+  workflow_dispatch: # Allows manual trigger from the Actions tab
 
 jobs:
   build:
@@ -30,13 +30,16 @@ jobs:
 
       - name: Download Transcript
         run: |
-          # --skip-download: Don't download video
-          # --write-auto-subs: Get captions
-          # --sub-lang en: Target English
+          # --ignore-no-formats-error: Fixes the 'Requested format is not available' error
+          # --write-subs: Checks for manually uploaded captions
+          # --write-auto-subs: Checks for AI-generated captions
+          # --sub-lang "en.*,hi.*": Tries English then Hindi variations
           yt-dlp --cookies cookies.txt \
                  --skip-download \
+                 --ignore-no-formats-error \
+                 --write-subs \
                  --write-auto-subs \
-                 --sub-lang "en.*" \
+                 --sub-lang "en.*,hi.*" \
                  --convert-subs srt \
                  "https://www.youtube.com/watch?v=YED8zVXc6As" \
                  -o "transcript"
@@ -46,15 +49,16 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Find any .srt file generated
+          # Use a wildcard to find the generated subtitle file (e.g., transcript.en.srt)
           FILE=$(ls transcript*.srt | head -n 1)
           
-          if [ -f "$FILE" ]; then
+          if [ -n "$FILE" ] && [ -f "$FILE" ]; then
+            echo "Found transcript file: $FILE"
             mv "$FILE" transcript.srt
             git add transcript.srt
-            git commit -m "Updated transcript.srt"
+            git commit -m "Automated transcript update via yt-dlp"
             git push
           else
-            echo "Transcript not found. Checking for video accessibility..."
+            echo "Error: No transcript file (.srt) was found."
             exit 1
           fi
