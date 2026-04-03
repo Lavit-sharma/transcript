@@ -30,16 +30,15 @@ jobs:
 
       - name: Download Transcript
         run: |
-          # --user-agent: Mimics a real Chrome browser
-          # --extractor-args: Forces yt-dlp to use the Android/iOS API which has higher limits
-          # --sleep-subtitles: Adds a small delay to avoid triggering bots
+          # Changed client to 'ios' which is currently more reliable for transcripts
+          # Removed 'web' client to avoid PO Token requirement errors
           yt-dlp --cookies cookies.txt \
                  --skip-download \
                  --ignore-no-formats-error \
-                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-                 --extractor-args "youtube:player_client=android,web" \
+                 --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" \
+                 --extractor-args "youtube:player_client=ios" \
                  --write-auto-subs \
-                 --sub-lang "en.*,hi.*" \
+                 --sub-lang "en.*" \
                  --convert-subs srt \
                  "https://www.youtube.com/watch?v=YED8zVXc6As" \
                  -o "transcript"
@@ -49,14 +48,16 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          FILE=$(ls transcript*.srt | head -n 1)
+          # Use a broad search for the srt file
+          FILE=$(find . -name "transcript*.srt" | head -n 1)
           
           if [ -n "$FILE" ] && [ -f "$FILE" ]; then
+            echo "Moving $FILE to transcript.srt"
             mv "$FILE" transcript.srt
             git add transcript.srt
-            git commit -m "Bypassed 429 error with client spoofing"
+            git commit -m "Bypassed PO Token using ios client"
             git push
           else
-            echo "Transcript file not found. If the 429 error persists, wait 1 hour and try again."
+            echo "No subtitle file found."
             exit 1
           fi
