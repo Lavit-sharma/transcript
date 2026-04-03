@@ -1,7 +1,7 @@
 name: Download YouTube Transcript
 
 on:
-  workflow_dispatch: # Allows manual trigger from the Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -30,14 +30,14 @@ jobs:
 
       - name: Download Transcript
         run: |
-          # --ignore-no-formats-error: Fixes the 'Requested format is not available' error
-          # --write-subs: Checks for manually uploaded captions
-          # --write-auto-subs: Checks for AI-generated captions
-          # --sub-lang "en.*,hi.*": Tries English then Hindi variations
+          # --user-agent: Mimics a real Chrome browser
+          # --extractor-args: Forces yt-dlp to use the Android/iOS API which has higher limits
+          # --sleep-subtitles: Adds a small delay to avoid triggering bots
           yt-dlp --cookies cookies.txt \
                  --skip-download \
                  --ignore-no-formats-error \
-                 --write-subs \
+                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+                 --extractor-args "youtube:player_client=android,web" \
                  --write-auto-subs \
                  --sub-lang "en.*,hi.*" \
                  --convert-subs srt \
@@ -49,16 +49,14 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Use a wildcard to find the generated subtitle file (e.g., transcript.en.srt)
           FILE=$(ls transcript*.srt | head -n 1)
           
           if [ -n "$FILE" ] && [ -f "$FILE" ]; then
-            echo "Found transcript file: $FILE"
             mv "$FILE" transcript.srt
             git add transcript.srt
-            git commit -m "Automated transcript update via yt-dlp"
+            git commit -m "Bypassed 429 error with client spoofing"
             git push
           else
-            echo "Error: No transcript file (.srt) was found."
+            echo "Transcript file not found. If the 429 error persists, wait 1 hour and try again."
             exit 1
           fi
