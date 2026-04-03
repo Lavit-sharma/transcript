@@ -26,7 +26,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Execute Script
-        run: python transcript.py
+        run: python my.py
 
       - name: Commit and Push Changes
         run: |
