@@ -12,20 +12,23 @@ def download_transcript():
     print(f"Attempting to download transcript for: {VIDEO_ID}")
     
     try:
-        # 1. Initialize API with cookies if they exist
+        # Check if cookies exist from your GitHub Secret
         if os.path.exists(COOKIE_FILE):
-            print("Initializing API with cookies from GitHub Secrets...")
-            # In the latest version, cookies go here in the constructor
-            api = YouTubeTranscriptApi(cookies=COOKIE_FILE)
+            print("Using cookies.json for authentication...")
+            # Use the static method directly - this is the standard way
+            transcript_list = YouTubeTranscriptApi.get_transcript(VIDEO_ID, cookies=COOKIE_FILE)
         else:
             print("Warning: cookies.json not found. Requesting without authentication...")
-            api = YouTubeTranscriptApi()
+            transcript_list = YouTubeTranscriptApi.get_transcript(VIDEO_ID)
         
-        # 2. Fetch the transcript (no arguments needed here except the ID)
-        transcript_list = api.fetch(VIDEO_ID)
-        
-        # 3. Process the objects using the .text attribute
-        full_text = "\n".join([snippet.text for snippet in transcript_list])
+        # In the static method, it usually returns a list of dictionaries
+        # We handle both formats (Object vs Dict) just to be 100% safe
+        full_text = ""
+        for entry in transcript_list:
+            if hasattr(entry, 'text'): # If it's an object
+                full_text += f"{entry.text}\n"
+            else: # If it's a dictionary (standard)
+                full_text += f"{entry['text']}\n"
         
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(full_text)
@@ -34,6 +37,9 @@ def download_transcript():
 
     except Exception as e:
         print(f"Error occurred: {str(e)}")
+        # Check for specific cookie issues
+        if "CookiesConfig" in str(e):
+             print("Check if your YOUTUBE_JSON secret is a valid JSON list.")
         sys.exit(1)
 
 if __name__ == "__main__":
