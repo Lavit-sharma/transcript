@@ -1,50 +1,36 @@
-name: Auto Download Transcript
+name: Scrape YouTube via Selenium
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
-  run-automation:
+  scrape:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install Selenium and Webdriver
         run: |
-          python -m pip install --upgrade pip
-          # FORCING the most stable version for cookie-based bypass
-          pip install youtube-transcript-api==1.2.1
+          pip install selenium webdriver-manager
 
-      - name: Create Cookies File
-        run: |
-          cat <<EOF > cookies.json
-          ${{ secrets.YOUTUBE_JSON }}
-          EOF
-
-      - name: Execute Script
+      - name: Run Scraper
         run: python my.py
 
-      - name: Commit and Push Changes
+      - name: Commit Results
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
           if [ -f transcript.txt ]; then
             git add transcript.txt
-            git commit -m "Updated transcript via Stable v1.2.1" || echo "No changes"
+            git commit -m "Scraped transcript via Selenium"
             git push
-          else
-            echo "transcript.txt not found."
-            exit 1
           fi
