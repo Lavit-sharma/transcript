@@ -12,17 +12,19 @@ def download_transcript():
     print(f"Attempting to download transcript for: {VIDEO_ID}")
     
     try:
-        api = YouTubeTranscriptApi()
-        
-        # Check if the secret was successfully turned into a file
+        # 1. Initialize API with cookies if they exist
         if os.path.exists(COOKIE_FILE):
-            print("Successfully loaded cookies from GitHub Secrets.")
-            transcript_list = api.fetch(VIDEO_ID, cookies=COOKIE_FILE)
+            print("Initializing API with cookies from GitHub Secrets...")
+            # In the latest version, cookies go here in the constructor
+            api = YouTubeTranscriptApi(cookies=COOKIE_FILE)
         else:
-            print("Warning: cookies.json not found. Request might be blocked by YouTube.")
-            transcript_list = api.fetch(VIDEO_ID)
+            print("Warning: cookies.json not found. Requesting without authentication...")
+            api = YouTubeTranscriptApi()
         
-        # Extracting text from the new 2026 object format
+        # 2. Fetch the transcript (no arguments needed here except the ID)
+        transcript_list = api.fetch(VIDEO_ID)
+        
+        # 3. Process the objects using the .text attribute
         full_text = "\n".join([snippet.text for snippet in transcript_list])
         
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
