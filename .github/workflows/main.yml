@@ -18,20 +18,15 @@ jobs:
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
 
-      # This version uses a specialized way to write the secret without adding extra lines
+      # This decodes the Base64 string back into a perfectly formatted file
       - name: Create Cookies File
         run: |
-          echo "${{ secrets.YOUTUBE_COOKIES_NETSCAPE }}" > cookies.txt
-          # Remove any leading/trailing empty lines that might break the format
-          sed -i '/^$/d' cookies.txt
+          echo "${{ secrets.YOUTUBE_COOKIES_BASE64 }}" | base64 --decode > cookies.txt
 
       - name: Download Transcript
         run: |
-          # We use --cookies to authenticate
-          # We use --write-subs (manual) and --write-auto-subs (automatic)
           yt-dlp --cookies cookies.txt \
                  --skip-download \
-                 --write-subs \
                  --write-auto-subs \
                  --sub-lang "en.*" \
                  --convert-subs srt \
@@ -42,12 +37,17 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # Check for any .srt file (could be transcript.en.srt or transcript.en-US.srt)
-          if ls transcript.*.srt 1> /dev/null 2>&1; then
-            git add transcript.*.srt
-            git commit -m "Downloaded transcript via yt-dlp"
+          
+          # Find the generated .srt file
+          FILE=$(ls transcript*.srt | head -n 1)
+          
+          if [ -f "$FILE" ]; then
+            # Rename it to a simple name
+            mv "$FILE" transcript.srt
+            git add transcript.srt
+            git commit -m "Downloaded transcript via yt-dlp (Base64 Fix)"
             git push
           else
-            echo "No transcript file found."
+            echo "No transcript file found. Check if the video has captions."
             exit 1
           fi
