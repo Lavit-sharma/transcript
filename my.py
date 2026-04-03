@@ -10,25 +10,27 @@ def download_transcript():
     print(f"Attempting to download transcript for: {VIDEO_ID}")
     
     try:
-        api = YouTubeTranscriptApi()
-        
-        # In this version, we use list() to handle authentication and finding transcripts
+        # Step 1: Use the static list_transcripts method (the most stable entry point)
         if os.path.exists(COOKIE_FILE):
-            print("Using list() with cookies for authentication...")
-            # list() returns a TranscriptList object
-            transcript_list_obj = api.list(VIDEO_ID, cookies=COOKIE_FILE)
+            print("Authenticating with cookies.json...")
+            transcript_list = YouTubeTranscriptApi.list_transcripts(VIDEO_ID, cookies=COOKIE_FILE)
         else:
             print("No cookies found. Proceeding without authentication...")
-            transcript_list_obj = api.list(VIDEO_ID)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(VIDEO_ID)
         
-        # Find the best transcript (manually created or auto-generated)
-        transcript = transcript_list_obj.find_transcript(['en', 'hi'])
+        # Step 2: Find the best transcript (English or Hindi preferred)
+        transcript = transcript_list.find_transcript(['en', 'hi'])
         
-        # Fetch the actual data (this returns the snippet objects)
+        # Step 3: Fetch the data
         data = transcript.fetch()
         
-        # Access the .text attribute
-        full_text = "\n".join([snippet.text for snippet in data])
+        # Step 4: Handle different data return types (Object vs Dict)
+        full_text = ""
+        for entry in data:
+            if hasattr(entry, 'text'):
+                full_text += f"{entry.text}\n"
+            else:
+                full_text += f"{entry['text']}\n"
         
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(full_text)
