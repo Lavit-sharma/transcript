@@ -1,10 +1,10 @@
-name: Scrape YouTube via Selenium
+name: Get Transcript via yt-dlp
 
 on:
   workflow_dispatch:
 
 jobs:
-  scrape:
+  download:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -13,24 +13,32 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Install Selenium and Webdriver
+      - name: Install yt-dlp
         run: |
-          pip install selenium webdriver-manager
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
 
-      - name: Run Scraper
-        run: python my.py
+      - name: Create Cookies File
+        run: |
+          cat <<EOF > cookies.txt
+          ${{ secrets.YOUTUBE_COOKIES_NETSCAPE }}
+          EOF
+
+      - name: Download Transcript
+        run: |
+          # --skip-download: Don't download the video
+          # --write-auto-subs: Get auto-generated captions if manual ones aren't there
+          # --sub-lang en: Get English
+          # --convert-subs srt: Save as a readable format
+          yt-dlp --cookies cookies.txt --skip-download --write-auto-subs --sub-lang en --convert-subs srt "https://www.youtube.com/watch?v=YED8zVXc6As" -o "transcript"
 
       - name: Commit Results
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f transcript.txt ]; then
-            git add transcript.txt
-            git commit -m "Scraped transcript via Selenium"
+          # Check for .srt file
+          if [ -f transcript.en.srt ]; then
+            git add transcript.en.srt
+            git commit -m "Downloaded transcript via yt-dlp"
             git push
           fi
