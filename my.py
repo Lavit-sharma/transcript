@@ -15,7 +15,7 @@ DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
     'password': '', 
-    'database': 'your_db_name'
+    'database': 'your_database'
 }
 
 def fetch_and_store(youtube_url):
@@ -36,29 +36,31 @@ def fetch_and_store(youtube_url):
         
         wait = WebDriverWait(driver, 60)
         
-        # 1. Based on your screenshot, we need to wait for the transcript list to appear.
-        # It's likely inside a div that contains timestamps (00:00:03.280 etc.)
-        print("Waiting for transcript container...")
+        # 1. Wait for the page to load and look for the 'Copy' button
+        # This button is clearly visible in your screenshot.
+        print("Looking for Copy button...")
+        copy_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Copy')]")))
         
-        # This selector targets the scrollable area seen in your screenshot
-        # It often has classes like 'transcript-items' or is the sibling of the video
-        transcript_container = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'transcript')] | //div[contains(@style, 'overflow-y')]")))
-
         # 2. Extract Title
         try:
             video_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
         except:
             video_title = f"YouTube Video {video_id}"
 
-        # 3. Use JavaScript to get ALL text from that container
-        # This is better than .text because it handles hidden elements and formatting
-        transcript_text = driver.execute_script("return arguments[0].innerText;", transcript_container)
+        # 3. GET THE TRANSCRIPT
+        # We try to get it from the 'data-clipboard-text' attribute of the button first
+        # This is where most 'Copy' buttons store the text they are about to copy.
+        transcript_text = copy_btn.get_attribute("data-clipboard-text")
 
-        if not transcript_text or len(transcript_text) < 100:
-            # Fallback: Scrape the entire text area near the video
-            transcript_text = driver.find_element(By.TAG_NAME, "body").text
-            # We filter it to only include lines that look like the transcript
-            # (In your screenshot, it's the right-hand panel)
+        if not transcript_text:
+            print("Button attribute empty, attempting JavaScript clipboard capture...")
+            # Fallback: Click the button and use JS to get the text from the result area
+            # We look for the panel on the right from your screenshot
+            transcript_panel = driver.find_element(By.XPATH, "//div[contains(@class, 'transcript') or contains(@style, 'overflow-y')]")
+            transcript_text = driver.execute_script("return arguments[0].innerText;", transcript_panel)
+
+        if not transcript_text or len(transcript_text) < 50:
+            raise Exception("Captured transcript is too short or empty.")
 
         # 4. Save to Database
         conn = pymysql.connect(**DB_CONFIG)
@@ -72,7 +74,7 @@ def fetch_and_store(youtube_url):
         conn.commit()
         conn.close()
         
-        # Create transcript.txt for GitHub Artifacts
+        # Save file for GitHub
         with open("transcript.txt", "w", encoding="utf-8") as f:
             f.write(transcript_text)
             
@@ -80,7 +82,8 @@ def fetch_and_store(youtube_url):
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        driver.save_screenshot("error_screenshot.png")
+        # Log the page source so you can see why it failed in the GitHub logs
+        print("Page Source Snippet:", driver.page_source[:500])
     finally:
         driver.quit()
 
