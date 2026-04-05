@@ -15,69 +15,66 @@ DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
     'password': '', 
-    'database': 'your_database'
+    'database': 'your_db_name'
 }
 
-def get_clean_id(arg):
-    """Extracts ID from URL or returns the string if it's already an ID."""
-    if "v=" in arg:
-        return arg.split("v=")[1].split("&")[0]
-    elif "youtu.be/" in arg:
-        return arg.split("/")[-1]
-    return arg
-
-def fetch_and_store(video_id):
-    youtube_url = f"https://www.youtube.com/watch?v={video_id}"
-    # Tactiq requires a double-encoded or very specific URL format
-    encoded_url = urllib.parse.quote(youtube_url, safe='')
-    tactiq_url = f"https://tactiq.io/tools/youtube-transcript-generator?url={encoded_url}"
-    
+def fetch_and_store(youtube_url):
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Add a user agent to prevent being blocked
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
     try:
-        print(f"Opening: {tactiq_url}")
-        driver.get(tactiq_url)
+        # Extract ID for the database
+        video_id = youtube_url.split("v=")[1].split("&")[0] if "v=" in youtube_url else youtube_url.split("/")[-1]
         
-        # Increased wait and multiple selector check
-        wait = WebDriverWait(driver, 45) 
+        # Build the exact Tactiq 'run' URL as you provided
+        encoded_yt = urllib.parse.quote(youtube_url)
+        target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={encoded_yt}"
         
-        # 1. Try to get Title
+        print(f"Navigating to: {target_url}")
+        driver.get(target_url)
+        
+        # The /run/ page usually has a different loading state.
+        # We wait for the transcript text to appear in the specific results area.
+        wait = WebDriverWait(driver, 60)
+
+        # Updated Selectors based on the /run/ page structure
+        # 1. Grab Title
         try:
-            title_el = wait.until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
+            title_el = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h1, .video-title, [class*='title']")))
             video_title = title_el.text.strip()
         except:
             video_title = f"YouTube Video {video_id}"
 
-        # 2. Try multiple selectors for the transcript content
+        # 2. Grab Transcript Content
+        # Tactiq's tool pages often use these specific classes for the output
         selectors = [
-            "div.transcript-content", 
-            ".rendered-transcript", 
+            ".transcript-content", 
+            ".rendered-transcript",
+            "div[class*='transcript_text']",
+            "div[class*='Transcript_content']",
             "#transcript-text",
-            "div[class*='Transcript_container']",
-            "section div p" # Fallback to any paragraph inside a div
+            "pre" # Sometimes raw transcripts are wrapped in pre tags
         ]
         
-        transcript_content = ""
+        transcript_text = ""
         for selector in selectors:
             try:
                 element = driver.find_element(By.CSS_SELECTOR, selector)
-                if len(element.text) > 100: # Ensure it's not just a 'loading' tag
-                    transcript_content = element.text.strip()
+                if len(element.text) > 100:
+                    transcript_text = element.text.strip()
                     break
             except:
                 continue
 
-        if not transcript_content:
-            raise Exception("Could not find transcript content on page.")
+        if not transcript_text:
+            raise Exception("Transcript content not found. The page may still be loading or blocked.")
 
-        # 3. Store in MySQL
+        # 3. Save to Database
         conn = pymysql.connect(**DB_CONFIG)
         with conn.cursor() as cursor:
             sql = """
@@ -85,27 +82,24 @@ def fetch_and_store(video_id):
             VALUES (%s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE content = VALUES(content), title = VALUES(title)
             """
-            cursor.execute(sql, (video_id, youtube_url, video_title, transcript_content))
+            cursor.execute(sql, (video_id, youtube_url, video_title, transcript_text))
         conn.commit()
         conn.close()
         
-        # Save to file so GitHub Artifacts finds it
+        # Write to file for GitHub Actions artifact
         with open("transcript.txt", "w", encoding="utf-8") as f:
-            f.write(transcript_content)
+            f.write(transcript_text)
             
-        print(f"✅ Successfully saved: {video_title}")
+        print(f"✅ Success: Stored transcript for {video_id}")
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        # Save page source for debugging if it fails
-        with open("error_page.html", "w") as f:
+        # Save HTML for debugging if it fails again
+        with open("debug.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
     finally:
         driver.quit()
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        v_id = get_clean_id(sys.argv[1])
-        fetch_and_store(v_id)
-    else:
-        print("Please provide a Video ID or URL.")
+    url_to_process = sys.argv[1] if len(sys.argv) > 1 else "https://www.youtube.com/watch?v=huW5sxhm3ow"
+    fetch_and_store(url_to_process)
