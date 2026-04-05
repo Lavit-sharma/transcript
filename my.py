@@ -1,67 +1,87 @@
-import requests
+import time
+import pymysql
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
-import urllib.parse
-import sys
+from webdriver_manager.chrome import ChromeDriverManager
 
-def get_video_id(youtube_url):
-    """Extract video ID from YouTube URL"""
-    parsed = urllib.parse.urlparse(youtube_url)
+# Database Configuration
+db_config = {
+    'host': 'localhost',
+    'user': 'your_username',
+    'password': 'your_password',
+    'database': 'your_database_name'
+}
+
+def get_transcript_from_tactiq(video_url):
+    """Uses Selenium to fetch transcript from Tactiq's dynamic page."""
+    # Setup headless browser
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
-    if parsed.hostname == "youtu.be":
-        return parsed.path[1:]
+    # Construct the Tactiq URL (assuming the pattern: tactiq.io/tools/youtube-transcript-generator?url=VIDEO_URL)
+    tactiq_url = f"https://tactiq.io/tools/youtube-transcript-generator?url={video_url}"
     
-    if "youtube.com" in parsed.hostname:
-        query = urllib.parse.parse_qs(parsed.query)
-        return query.get("v", [None])[0]
-    
-    return None
-
-
-def fetch_transcript(youtube_url):
-    video_id = get_video_id(youtube_url)
-
-    if not video_id:
-        print("❌ Invalid YouTube URL")
+    try:
+        driver.get(tactiq_url)
+        
+        # Wait for the transcript container to appear (adjust selector if Tactiq changed it)
+        # Often the transcript is inside a div or textarea after processing
+        wait = WebDriverWait(driver, 15)
+        transcript_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.transcript-content, .rendered-transcript"))) 
+        
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        # Extract text - adjust the class based on Tactiq's current UI
+        transcript_text = transcript_element.text.strip()
+        
+        return transcript_text
+    except Exception as e:
+        print(f"Error fetching transcript for {video_url}: {e}")
         return None
+    finally:
+        driver.quit()
 
-    # Build dynamic Tactiq URL
-    tactiq_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
+def store_in_db(video_id, title, transcript):
+    """Stores the transcript into wp_transcript table."""
+    if not transcript:
+        return
 
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    connection = pymysql.connect(**db_config)
+    try:
+        with connection.cursor() as cursor:
+            sql = """
+            INSERT INTO wp_transcript (video_id, video_title, transcript_text)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE transcript_text = VALUES(transcript_text)
+            """
+            cursor.execute(sql, (video_id, title, transcript))
+        connection.commit()
+        print(f"Successfully stored: {title}")
+    except Exception as e:
+        print(f"Database error: {e}")
+    finally:
+        connection.close()
 
-    response = requests.get(tactiq_url, headers=headers)
-
-    if response.status_code != 200:
-        print("❌ Failed to fetch page")
-        return None
-
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    # Extract transcript (this may change if site structure changes)
-    transcript_blocks = soup.find_all("p")
-
-    transcript = "\n".join([p.get_text(strip=True) for p in transcript_blocks])
-
-    return transcript
-
-
-if __name__ == "__main__":
-    # Example: pass URL as argument OR hardcode for testing
-    if len(sys.argv) > 1:
-        youtube_url = sys.argv[1]
-    else:
-        youtube_url = "https://www.youtube.com/watch?v=huW5sxhm3ow"
-
-    transcript = fetch_transcript(youtube_url)
-
+def process_video(video_id, title):
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    print(f"Processing: {title}...")
+    
+    transcript = get_transcript_from_tactiq(video_url)
+    
     if transcript:
-        print("\n===== TRANSCRIPT =====\n")
-        print(transcript)
+        store_in_db(video_id, title, transcript)
+    else:
+        print(f"Failed to retrieve transcript for {video_id}")
 
-        # Save to file (useful for GitHub Actions)
-        with open("transcript.txt", "w", encoding="utf-8") as f:
-            f.write(transcript)
-
-        print("\n✅ Saved to transcript.txt")
+# Example Usage
+if __name__ == "__main__":
+    # Replace with your logic to get video list
+    sample_video_id = "EXAMPLE_ID"
+    sample_title = "Example Video Title"
+    
+    process_video(sample_video_id, sample_title)
