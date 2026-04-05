@@ -99,4 +99,13 @@ def fetch_and_store(video_id):
         print(f"❌ Error: {e}")
         # Save page source for debugging if it fails
         with open("error_page.html", "w") as f:
-            f.write(
+            f.write(driver.page_source)
+    finally:
+        driver.quit()
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        v_id = get_clean_id(sys.argv[1])
+        fetch_and_store(v_id)
+    else:
+        print("Please provide a Video ID or URL.")
