@@ -34,32 +34,30 @@ def fetch_and_store(youtube_url):
         print(f"Opening: {target_url}")
         driver.get(target_url)
         
-        wait = WebDriverWait(driver, 30)
+        # 1. Wait for the Copy Button (XPath provided: //*[@id='copy'])
+        # This button appearing is the signal that the transcript is ready
+        wait = WebDriverWait(driver, 90) # Increased to 90s for long videos
+        print("Waiting for Copy button (id='copy') to be ready...")
         
-        # 1. Locate the container
-        print("Waiting for transcript container...")
-        container = wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="transcript"]')))
+        copy_btn = wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="copy"]')))
 
-        # 2. RETRY LOOP: Wait for the ACTUAL transcript to load inside the box
-        # We check every 5 seconds for up to 60 seconds
+        # 2. Extract Transcript from the button attribute
+        # Most "Copy" buttons store the full text in 'data-clipboard-text' or 'value'
         transcript_text = ""
-        max_retries = 12
+        max_retries = 10
         for i in range(max_retries):
-            # Use innerText to get current content of the div
-            current_content = driver.execute_script("return arguments[0].innerText;", container)
+            # Try to get the text directly from the button's internal data
+            transcript_text = copy_btn.get_attribute("data-clipboard-text")
             
-            # Check if it contains actual transcript (longer than marketing text)
-            # Marketing text is usually ~300 chars, real transcripts are much longer
-            if len(current_content) > 500: 
-                transcript_text = current_content.strip()
-                print(f"✅ Transcript detected after {i*5} seconds!")
+            if transcript_text and len(transcript_text) > 500:
+                print(f"✅ Full transcript captured from Copy button after {i*5}s!")
                 break
             else:
-                print(f"   [Attempt {i+1}] Still waiting for transcript to generate...")
+                print(f"   [Attempt {i+1}] Button found, but transcript data not yet attached...")
                 time.sleep(5)
 
         if not transcript_text:
-            raise Exception("Timeout: Transcript did not load in time. Content was too short.")
+            raise Exception("Timeout: Copy button found but transcript text was empty or too short.")
 
         # 3. Get Title
         try:
@@ -79,15 +77,15 @@ def fetch_and_store(youtube_url):
         conn.commit()
         conn.close()
         
+        # Save file for GitHub Artifacts
         with open("transcript.txt", "w", encoding="utf-8") as f:
             f.write(transcript_text)
             
-        print(f"✅ Success: Stored {video_title}")
+        print(f"✅ Success: Stored {video_title} ({len(transcript_text)} characters)")
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        # Save HTML for debugging
-        with open("debug.html", "w", encoding="utf-8") as f:
+        with open("debug_page.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
     finally:
         driver.quit()
