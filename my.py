@@ -10,12 +10,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# --- Database Config (Update with your Hostinger/Server details) ---
+# --- Database Config ---
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
     'password': '', 
-    'database': 'your_database_name'
+    'database': 'your_database'
 }
 
 def fetch_and_store(youtube_url):
@@ -28,61 +28,67 @@ def fetch_and_store(youtube_url):
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
     try:
-        # 1. Extract Video ID and Build URL
         video_id = youtube_url.split("v=")[1].split("&")[0] if "v=" in youtube_url else youtube_url.split("/")[-1]
         target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
         
-        print(f"Opening Target URL: {target_url}")
+        print(f"Opening: {target_url}")
         driver.get(target_url)
         
-        # 2. Wait for the specific Transcript Container
-        wait = WebDriverWait(driver, 60)
-        print("Waiting for transcript container (XPath: //*[@id='transcript'])...")
+        wait = WebDriverWait(driver, 30)
         
+        # 1. Locate the container
+        print("Waiting for transcript container...")
         container = wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="transcript"]')))
-        
-        # 3. Capture Title and Content
+
+        # 2. RETRY LOOP: Wait for the ACTUAL transcript to load inside the box
+        # We check every 5 seconds for up to 60 seconds
+        transcript_text = ""
+        max_retries = 12
+        for i in range(max_retries):
+            # Use innerText to get current content of the div
+            current_content = driver.execute_script("return arguments[0].innerText;", container)
+            
+            # Check if it contains actual transcript (longer than marketing text)
+            # Marketing text is usually ~300 chars, real transcripts are much longer
+            if len(current_content) > 500: 
+                transcript_text = current_content.strip()
+                print(f"✅ Transcript detected after {i*5} seconds!")
+                break
+            else:
+                print(f"   [Attempt {i+1}] Still waiting for transcript to generate...")
+                time.sleep(5)
+
+        if not transcript_text:
+            raise Exception("Timeout: Transcript did not load in time. Content was too short.")
+
+        # 3. Get Title
         try:
             video_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
         except:
             video_title = f"YouTube Video {video_id}"
 
-        # Using innerText to ensure we get exactly what is visible in the UI
-        transcript_text = driver.execute_script("return arguments[0].innerText;", container)
-
-        if not transcript_text or len(transcript_text) < 50:
-            raise Exception("Captured transcript is too short. It might not have loaded fully.")
-
-        # 4. Save to MySQL Table
-        print("Connecting to database...")
+        # 4. Save to Database
         conn = pymysql.connect(**DB_CONFIG)
         with conn.cursor() as cursor:
-            # Table Structure: video_id, video_url, title, content
             sql = """
             INSERT INTO wp_transcript (video_id, video_url, title, content)
             VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE 
-                content = VALUES(content), 
-                title = VALUES(title)
+            ON DUPLICATE KEY UPDATE content = VALUES(content), title = VALUES(title)
             """
             cursor.execute(sql, (video_id, youtube_url, video_title, transcript_text))
         conn.commit()
         conn.close()
         
-        # 5. Save local file for GitHub Artifacts
         with open("transcript.txt", "w", encoding="utf-8") as f:
             f.write(transcript_text)
             
-        print(f"✅ Success: Transcript for '{video_title}' stored in database.")
+        print(f"✅ Success: Stored {video_title}")
 
     except Exception as e:
-        print(f"❌ Error during execution: {e}")
-        # Log a snippet of the page for debugging if it fails
-        print("HTML Snippet around ID 'transcript':")
-        try:
-            print(driver.find_element(By.TAG_NAME, "body").text[:500])
-        except:
-            pass
+        print(f"❌ Error: {e}")
+        # Save HTML for debugging
+        with open("debug.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
     finally:
         driver.quit()
 
