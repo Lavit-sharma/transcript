@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 import pymysql
 import urllib.parse
@@ -19,72 +20,76 @@ DB_CONFIG = {
 }
 
 def fetch_and_store(youtube_url):
+    download_dir = os.getcwd() # Download to the current folder
+    
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # Set Download Preferences for Headless Chrome
+    prefs = {
+        "download.default_directory": download_dir,
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
+    # Enable download in headless mode (Special command for Chrome)
+    driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+        "behavior": "allow",
+        "downloadPath": download_dir
+    })
+
     try:
         video_id = youtube_url.split("v=")[1].split("&")[0] if "v=" in youtube_url else youtube_url.split("/")[-1]
-        
-        # Use the /run/ URL format you confirmed works
-        encoded_yt = urllib.parse.quote(youtube_url)
-        target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={encoded_yt}"
+        target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
         
         print(f"Navigating to: {target_url}")
         driver.get(target_url)
         
-        # 1. Wait for the page to settle
         wait = WebDriverWait(driver, 60)
-        time.sleep(5) # Extra time for internal JS to finish fetching from YouTube
+        
+        # 1. Click the Download Button
+        # We look for a button that contains 'Download'
+        print("Looking for Download button...")
+        download_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Download')]")))
+        download_btn.click()
+        print("Download clicked. Waiting for file...")
 
-        # 2. Try to find the transcript text using multiple methods
-        transcript_text = ""
+        # 2. Wait for the file to appear in the directory
+        # Tactiq usually downloads a .txt or .docx file
+        timeout = 30
+        start_time = time.time()
+        downloaded_file = None
+        
+        while time.time() - start_time < timeout:
+            files = [f for f in os.listdir(download_dir) if f.endswith(('.txt', '.docx'))]
+            if files:
+                downloaded_file = files[0]
+                break
+            time.sleep(2)
 
-        # Method A: Look for the specific result div
-        result_selectors = [
-            ".transcript-content", 
-            ".rendered-transcript",
-            "div[class*='Transcript_text']",
-            "div[class*='Transcript_content']",
-            "section pre",
-            "#transcript-text"
-        ]
+        if not downloaded_file:
+            raise Exception("File was not downloaded within the timeout period.")
 
-        for selector in result_selectors:
-            try:
-                elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                for el in elements:
-                    if len(el.text) > 200:
-                        transcript_text = el.text.strip()
-                        print(f"✅ Found transcript using selector: {selector}")
-                        break
-                if transcript_text: break
-            except: continue
+        print(f"✅ File detected: {downloaded_file}")
 
-        # Method B: If text is missing, find the 'Copy' button and extract data from it
-        if not transcript_text:
-            try:
-                # Many scrapers find text inside the 'copy' button's data attributes if not in HTML
-                copy_btn = driver.find_element(By.XPATH, "//button[contains(., 'Copy') or contains(., 'Download')]")
-                # Sometimes the text is in 'data-clipboard-text' or similar
-                transcript_text = copy_btn.get_attribute("data-clipboard-text") or copy_btn.get_attribute("value")
-                if transcript_text: print("✅ Found transcript inside Copy button attribute.")
-            except: pass
+        # 3. Read the content from the downloaded file
+        # If it's a .txt file:
+        with open(downloaded_file, 'r', encoding='utf-8') as f:
+            transcript_text = f.read().strip()
 
-        if not transcript_text:
-            raise Exception("Transcript content is still empty after 60s. Check if video has captions enabled.")
-
-        # 3. Get Title
+        # 4. Get Title for DB
         try:
             video_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
         except:
-            video_title = f"YouTube Video {video_id}"
+            video_title = downloaded_file.replace(".txt", "")
 
-        # 4. Save to Database
+        # 5. Store in MySQL
         conn = pymysql.connect(**DB_CONFIG)
         with conn.cursor() as cursor:
             sql = """
@@ -96,16 +101,15 @@ def fetch_and_store(youtube_url):
         conn.commit()
         conn.close()
         
-        # Write to file for Artifacts
+        # Keep a copy as 'transcript.txt' for the GitHub Artifact step
         with open("transcript.txt", "w", encoding="utf-8") as f:
             f.write(transcript_text)
             
-        print(f"✅ Final Success: {video_title} saved.")
+        print(f"✅ Successfully stored '{video_title}' from downloaded file.")
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        # Save a screenshot for you to see what the runner sees
-        driver.save_screenshot("debug_screenshot.png")
+        driver.save_screenshot("error_shot.png")
     finally:
         driver.quit()
 
