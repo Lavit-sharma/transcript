@@ -1,5 +1,4 @@
 import sys
-import os
 import time
 import pymysql
 import urllib.parse
@@ -20,76 +19,48 @@ DB_CONFIG = {
 }
 
 def fetch_and_store(youtube_url):
-    download_dir = os.getcwd() # Download to the current folder
-    
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    
-    # Set Download Preferences for Headless Chrome
-    prefs = {
-        "download.default_directory": download_dir,
-        "download.prompt_for_download": False,
-        "download.directory_upgrade": True,
-        "safebrowsing.enabled": True
-    }
-    chrome_options.add_experimental_option("prefs", prefs)
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
-    # Enable download in headless mode (Special command for Chrome)
-    driver.execute_cdp_cmd("Page.setDownloadBehavior", {
-        "behavior": "allow",
-        "downloadPath": download_dir
-    })
-
     try:
         video_id = youtube_url.split("v=")[1].split("&")[0] if "v=" in youtube_url else youtube_url.split("/")[-1]
         target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
         
-        print(f"Navigating to: {target_url}")
+        print(f"Opening: {target_url}")
         driver.get(target_url)
         
         wait = WebDriverWait(driver, 60)
         
-        # 1. Click the Download Button
-        # We look for a button that contains 'Download'
-        print("Looking for Download button...")
-        download_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Download')]")))
-        download_btn.click()
-        print("Download clicked. Waiting for file...")
-
-        # 2. Wait for the file to appear in the directory
-        # Tactiq usually downloads a .txt or .docx file
-        timeout = 30
-        start_time = time.time()
-        downloaded_file = None
+        # 1. Based on your screenshot, we need to wait for the transcript list to appear.
+        # It's likely inside a div that contains timestamps (00:00:03.280 etc.)
+        print("Waiting for transcript container...")
         
-        while time.time() - start_time < timeout:
-            files = [f for f in os.listdir(download_dir) if f.endswith(('.txt', '.docx'))]
-            if files:
-                downloaded_file = files[0]
-                break
-            time.sleep(2)
+        # This selector targets the scrollable area seen in your screenshot
+        # It often has classes like 'transcript-items' or is the sibling of the video
+        transcript_container = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'transcript')] | //div[contains(@style, 'overflow-y')]")))
 
-        if not downloaded_file:
-            raise Exception("File was not downloaded within the timeout period.")
-
-        print(f"✅ File detected: {downloaded_file}")
-
-        # 3. Read the content from the downloaded file
-        # If it's a .txt file:
-        with open(downloaded_file, 'r', encoding='utf-8') as f:
-            transcript_text = f.read().strip()
-
-        # 4. Get Title for DB
+        # 2. Extract Title
         try:
             video_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
         except:
-            video_title = downloaded_file.replace(".txt", "")
+            video_title = f"YouTube Video {video_id}"
 
-        # 5. Store in MySQL
+        # 3. Use JavaScript to get ALL text from that container
+        # This is better than .text because it handles hidden elements and formatting
+        transcript_text = driver.execute_script("return arguments[0].innerText;", transcript_container)
+
+        if not transcript_text or len(transcript_text) < 100:
+            # Fallback: Scrape the entire text area near the video
+            transcript_text = driver.find_element(By.TAG_NAME, "body").text
+            # We filter it to only include lines that look like the transcript
+            # (In your screenshot, it's the right-hand panel)
+
+        # 4. Save to Database
         conn = pymysql.connect(**DB_CONFIG)
         with conn.cursor() as cursor:
             sql = """
@@ -101,15 +72,15 @@ def fetch_and_store(youtube_url):
         conn.commit()
         conn.close()
         
-        # Keep a copy as 'transcript.txt' for the GitHub Artifact step
+        # Create transcript.txt for GitHub Artifacts
         with open("transcript.txt", "w", encoding="utf-8") as f:
             f.write(transcript_text)
             
-        print(f"✅ Successfully stored '{video_title}' from downloaded file.")
+        print(f"✅ Success: Transcript for '{video_title}' stored in table.")
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        driver.save_screenshot("error_shot.png")
+        driver.save_screenshot("error_screenshot.png")
     finally:
         driver.quit()
 
