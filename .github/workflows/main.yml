@@ -16,23 +16,17 @@ jobs:
         with:
           python-version: "3.10"
 
-      # ✅ INSTALL CHROME PROPERLY
-      - name: Install Google Chrome
+      # ✅ Install ONLY chromedriver (Chromium already exists)
+      - name: Install Chromium Driver
         run: |
           sudo apt-get update
-          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt install -y ./google-chrome-stable_current_amd64.deb
-
-      # ✅ INSTALL CHROMEDRIVER
-      - name: Install Chromedriver
-        run: |
           sudo apt-get install -y chromium-chromedriver
 
-      # ✅ DEBUG (VERY IMPORTANT)
-      - name: Verify Chrome
+      # ✅ Debug paths (IMPORTANT)
+      - name: Verify Browser
         run: |
-          which google-chrome
-          google-chrome --version
+          which chromium-browser || true
+          which chromium || true
           which chromedriver
           chromedriver --version
 
