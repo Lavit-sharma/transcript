@@ -30,71 +30,60 @@ def extract_video_id(url):
 
 # ---------------- FETCH TRANSCRIPT ---------------- #
 def get_transcript(youtube_url):
-    log("🌐 Fetching transcript from DownSub...")
 
-    downsub_url = f"https://downsub.com/?url={youtube_url}"
-    log(f"➡️ Request URL: {downsub_url}")
-
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    driver = create_driver()
 
     try:
-        res = requests.get(downsub_url, headers=headers, timeout=30)
+        downsub_url = f"https://downsub.com/?url={youtube_url}"
+        log(f"🌐 Opening: {downsub_url}")
 
-        log(f"🌍 Final URL: {res.url}")
-        log(f"📡 Status Code: {res.status_code}")
+        driver.get(downsub_url)
 
-        # Save full HTML for debugging
-        with open("debug_downsub.html", "w", encoding="utf-8") as f:
-            f.write(res.text)
+        wait = WebDriverWait(driver, 60)
 
-        log("📄 Saved HTML: debug_downsub.html")
+        log("⏳ Waiting for TXT button (your XPath)...")
 
-        # Print small preview
-        log(f"🔍 HTML Preview: {res.text[:300]}")
+        # ✅ YOUR EXACT XPATH
+        txt_button = wait.until(
+            EC.element_to_be_clickable((
+                By.XPATH,
+                "//*[@id='app']/div/main/div/div[2]/div/div[1]/div[1]/div[2]/div[1]/button[2]"
+            ))
+        )
 
-        soup = BeautifulSoup(res.text, "html.parser")
+        log("✅ Button found, clicking...")
 
-        links = soup.find_all("a")
-        log(f"🔗 Total links found: {len(links)}")
+        # 🔥 CLICK BUTTON
+        driver.execute_script("arguments[0].click();", txt_button)
 
-        subtitle_link = None
+        time.sleep(3)
 
-        for link in links:
-            href = link.get("href", "")
-            text = link.text.strip()
+        # 🔥 AFTER CLICK → FIND DOWNLOAD LINK
+        log("🔍 Looking for download link...")
 
-            if ".txt" in href.lower():
-                subtitle_link = href
-                log(f"✅ Found TXT link: {href}")
-                break
+        link_element = wait.until(
+            EC.presence_of_element_located((
+                By.XPATH, "//a[contains(@href,'.txt')]"
+            ))
+        )
 
-            # EXTRA fallback (sometimes button text)
-            if "download" in text.lower():
-                subtitle_link = href
-                log(f"✅ Found Download link: {href}")
-                break
+        txt_link = link_element.get_attribute("href")
 
-        if not subtitle_link:
-            log("❌ No transcript link found")
-            return None
+        log(f"⬇️ Download link: {txt_link}")
 
-        # Fix relative URLs
-        if subtitle_link.startswith("/"):
-            subtitle_link = "https://downsub.com" + subtitle_link
+        # DOWNLOAD FILE
+        import requests
+        res = requests.get(txt_link)
 
-        log(f"⬇️ Downloading transcript from: {subtitle_link}")
-
-        txt_res = requests.get(subtitle_link, timeout=30)
-
-        log(f"📄 Transcript download status: {txt_res.status_code}")
-
-        return txt_res.text
+        return res.text
 
     except Exception as e:
-        log(f"❌ Error fetching transcript: {e}")
+        log(f"❌ Error: {e}")
+        driver.save_screenshot("error.png")
         return None
+
+    finally:
+        driver.quit()
 # ---------------- MAIN ---------------- #
 def fetch_and_store(youtube_url):
 
