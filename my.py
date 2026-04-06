@@ -6,9 +6,7 @@ from contextlib import closing
 from datetime import datetime
 
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 # ---------------- CONFIG ---------------- #
@@ -21,12 +19,10 @@ DB_CONFIG = {
 }
 
 
-# ---------------- LOGGER ---------------- #
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
 
-# ---------------- HELPERS ---------------- #
 def extract_video_id(url):
     if "v=" in url:
         return url.split("v=")[1].split("&")[0]
@@ -35,107 +31,73 @@ def extract_video_id(url):
     return None
 
 
-# ---------------- MAIN ---------------- #
 def fetch_and_store(youtube_url):
 
     video_id = extract_video_id(youtube_url)
     if not video_id:
-        log("❌ Invalid YouTube URL")
+        log("❌ Invalid URL")
         return
 
+    # ✅ FIXED Chrome setup (NO webdriver-manager)
     chrome_options = Options()
-
-    # ⚠️ KEEP HEADLESS OFF FOR DEBUG
-    # chrome_options.add_argument("--headless=new")
-
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--remote-debugging-port=9222")
     chrome_options.add_argument("--window-size=1920,1080")
 
     log("🚀 Starting Chrome...")
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=chrome_options
-    )
+
+    driver = webdriver.Chrome(options=chrome_options)
 
     try:
         target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
 
-        log(f"🌐 Opening URL: {target_url}")
+        log(f"🌐 Opening: {target_url}")
         driver.get(target_url)
 
         time.sleep(5)
 
-        log(f"📄 Page Title: {driver.title}")
-        log(f"🔗 Current URL: {driver.current_url}")
+        log(f"📄 Title: {driver.title}")
 
-        # Screenshot for debugging
-        driver.save_screenshot("debug_start.png")
-        log("📸 Screenshot saved: debug_start.png")
-
+        transcript_text = ""
         attempt = 0
 
         while True:
             attempt += 1
 
-            log(f"🔄 Attempt #{attempt}")
+            log(f"🔄 Attempt {attempt}")
 
-            try:
-                button_exists = driver.execute_script(
-                    "return !!document.querySelector('#copy')"
-                )
-                log(f"🔘 Copy Button Exists: {button_exists}")
+            transcript_text = driver.execute_script("""
+                let btn = document.querySelector('#copy');
+                if (!btn) return '';
 
-                transcript_text = driver.execute_script("""
-                    let btn = document.querySelector('#copy');
-                    if (!btn) return '';
+                let txt = btn.getAttribute('data-clipboard-text');
+                if (txt && txt.length > 500) return txt;
 
-                    let txt = btn.getAttribute('data-clipboard-text');
-                    if (txt && txt.length > 0) return txt;
+                return '';
+            """)
 
-                    let fallback = btn.innerText || '';
-                    return fallback;
-                """)
+            length = len(transcript_text) if transcript_text else 0
+            log(f"📊 Length: {length}")
 
-                length = len(transcript_text) if transcript_text else 0
-                log(f"📊 Transcript Length: {length}")
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-                # Scroll to trigger lazy loading
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-                if transcript_text and length > 500:
-                    log("✅ SUCCESS: Transcript captured!")
-                    break
-
-            except Exception as js_error:
-                log(f"❌ JS Error: {js_error}")
-
-            # Save periodic debug
-            if attempt % 5 == 0:
-                filename = f"debug_{attempt}.png"
-                driver.save_screenshot(filename)
-                log(f"📸 Screenshot saved: {filename}")
+            if transcript_text and length > 500:
+                log("✅ Transcript captured")
+                break
 
             time.sleep(4)
 
-        # ---------------- GET TITLE ---------------- #
-        try:
-            video_title = driver.execute_script("""
-                let h1 = document.querySelector('h1');
-                return h1 ? h1.innerText : '';
-            """).strip()
+        # ---------------- SAVE FILE ---------------- #
+        with open("transcript.txt", "w", encoding="utf-8") as f:
+            f.write(transcript_text)
 
-            if not video_title:
-                video_title = f"YouTube Video {video_id}"
-
-        except:
-            video_title = f"YouTube Video {video_id}"
-
-        log(f"🎬 Video Title: {video_title}")
+        log("📄 Transcript saved")
 
         # ---------------- SAVE TO DB ---------------- #
-        log("💾 Saving to database...")
+        log("💾 Saving to DB...")
 
         with closing(pymysql.connect(**DB_CONFIG)) as conn:
             with conn.cursor() as cursor:
@@ -152,35 +114,26 @@ def fetch_and_store(youtube_url):
                 cursor.execute(sql, (
                     video_id,
                     youtube_url,
-                    video_title,
+                    f"YouTube Video {video_id}",
                     transcript_text
                 ))
 
             conn.commit()
 
-        log("✅ Database saved successfully")
-
-        # Save transcript file
-        with open("transcript.txt", "w", encoding="utf-8") as f:
-            f.write(transcript_text)
-
-        log("📄 Transcript file saved")
+        log("✅ DB saved")
 
     except Exception as e:
-        log(f"❌ CRITICAL ERROR: {e}")
+        log(f"❌ ERROR: {e}")
 
-        with open("debug_error.html", "w", encoding="utf-8") as f:
+        driver.save_screenshot("error.png")
+        with open("error.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
-
-        driver.save_screenshot("debug_error.png")
-        log("📸 Error screenshot + HTML saved")
 
     finally:
         driver.quit()
-        log("🛑 Browser closed")
+        log("🛑 Closed browser")
 
 
-# ---------------- ENTRY ---------------- #
 if __name__ == "__main__":
     url_input = sys.argv[1] if len(sys.argv) > 1 else "https://www.youtube.com/watch?v=huW5sxhm3ow"
     fetch_and_store(url_input)
