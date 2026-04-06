@@ -7,6 +7,7 @@ from datetime import datetime
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 
 # ---------------- CONFIG ---------------- #
@@ -38,8 +39,11 @@ def fetch_and_store(youtube_url):
         log("❌ Invalid URL")
         return
 
-    # ✅ FIXED Chrome setup (NO webdriver-manager)
     chrome_options = Options()
+
+    # ✅ FIXED PATH
+    chrome_options.binary_location = "/usr/bin/google-chrome-stable"
+
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -49,7 +53,10 @@ def fetch_and_store(youtube_url):
 
     log("🚀 Starting Chrome...")
 
-    driver = webdriver.Chrome(options=chrome_options)
+    # ✅ FIXED DRIVER PATH
+    service = Service("/usr/bin/chromedriver")
+
+    driver = webdriver.Chrome(service=service, options=chrome_options)
 
     try:
         target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
@@ -59,14 +66,11 @@ def fetch_and_store(youtube_url):
 
         time.sleep(5)
 
-        log(f"📄 Title: {driver.title}")
-
         transcript_text = ""
         attempt = 0
 
         while True:
             attempt += 1
-
             log(f"🔄 Attempt {attempt}")
 
             transcript_text = driver.execute_script("""
@@ -82,23 +86,19 @@ def fetch_and_store(youtube_url):
             length = len(transcript_text) if transcript_text else 0
             log(f"📊 Length: {length}")
 
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
             if transcript_text and length > 500:
                 log("✅ Transcript captured")
                 break
 
             time.sleep(4)
 
-        # ---------------- SAVE FILE ---------------- #
+        # Save file
         with open("transcript.txt", "w", encoding="utf-8") as f:
             f.write(transcript_text)
 
         log("📄 Transcript saved")
 
-        # ---------------- SAVE TO DB ---------------- #
-        log("💾 Saving to DB...")
-
+        # Save DB
         with closing(pymysql.connect(**DB_CONFIG)) as conn:
             with conn.cursor() as cursor:
 
@@ -106,9 +106,7 @@ def fetch_and_store(youtube_url):
                 INSERT INTO wp_transcript (video_id, video_url, title, content, created_at)
                 VALUES (%s, %s, %s, %s, NOW())
                 ON DUPLICATE KEY UPDATE
-                    content = VALUES(content),
-                    title = VALUES(title),
-                    updated_at = NOW()
+                    content = VALUES(content)
                 """
 
                 cursor.execute(sql, (
@@ -124,10 +122,7 @@ def fetch_and_store(youtube_url):
 
     except Exception as e:
         log(f"❌ ERROR: {e}")
-
         driver.save_screenshot("error.png")
-        with open("error.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
 
     finally:
         driver.quit()
