@@ -1,14 +1,9 @@
 import sys
-import time
+import requests
 import pymysql
-import urllib.parse
-from contextlib import closing
+from bs4 import BeautifulSoup
 from datetime import datetime
-import os
-
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+from contextlib import closing
 
 
 # ---------------- CONFIG ---------------- #
@@ -33,23 +28,45 @@ def extract_video_id(url):
     return None
 
 
-# ✅ AUTO DETECT CHROME PATH
-def get_chrome_binary():
-    paths = [
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable"
-    ]
+# ---------------- FETCH TRANSCRIPT ---------------- #
+def get_transcript(youtube_url):
+    log("🌐 Fetching transcript from DownSub...")
 
-    for path in paths:
-        if os.path.exists(path):
-            log(f"✅ Using browser: {path}")
-            return path
+    downsub_url = f"https://downsub.com/?url={youtube_url}"
 
-    raise Exception("❌ No Chrome/Chromium binary found")
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    try:
+        res = requests.get(downsub_url, headers=headers, timeout=30)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        links = soup.find_all("a")
+
+        subtitle_link = None
+
+        for link in links:
+            href = link.get("href", "")
+            if ".txt" in href:
+                subtitle_link = href
+                break
+
+        if not subtitle_link:
+            log("❌ No transcript link found")
+            return None
+
+        log(f"✅ Found transcript link")
+
+        txt_res = requests.get(subtitle_link, timeout=30)
+        return txt_res.text
+
+    except Exception as e:
+        log(f"❌ Error fetching transcript: {e}")
+        return None
 
 
+# ---------------- MAIN ---------------- #
 def fetch_and_store(youtube_url):
 
     video_id = extract_video_id(youtube_url)
@@ -57,91 +74,31 @@ def fetch_and_store(youtube_url):
         log("❌ Invalid URL")
         return
 
-    chrome_options = Options()
+    transcript_text = get_transcript(youtube_url)
 
-    # ✅ AUTO FIX
-    chrome_options.binary_location = get_chrome_binary()
+    if not transcript_text or len(transcript_text) < 50:
+        log("❌ Transcript empty or too short")
+        return
 
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--remote-debugging-port=9222")
-    chrome_options.add_argument("--window-size=1920,1080")
+    log(f"📊 Transcript length: {len(transcript_text)}")
 
-    log("🚀 Starting Chrome...")
+    # Save file
+    with open("transcript.txt", "w", encoding="utf-8") as f:
+        f.write(transcript_text)
 
-    # ✅ DRIVER AUTO DETECT
-    driver_path = "/usr/bin/chromedriver"
-    if not os.path.exists(driver_path):
-        raise Exception("❌ chromedriver not found at /usr/bin/chromedriver")
+    log("📄 Transcript saved to file")
 
-    service = Service(driver_path)
-
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # Save DB
+    log("💾 Saving to DB...")
 
     try:
-        target_url = f"https://tactiq.io/tools/run/youtube_transcript?yt={urllib.parse.quote(youtube_url)}"
-
-        log(f"🌐 Opening: {target_url}")
-        driver.get(target_url)
-
-        time.sleep(5)
-
-        log(f"📄 Page Title: {driver.title}")
-
-        transcript_text = ""
-        attempt = 0
-
-        while True:
-            attempt += 1
-            log(f"🔄 Attempt {attempt}")
-
-            transcript_text = driver.execute_script("""
-                let btn = document.querySelector('#copy');
-                if (!btn) return '';
-
-                let txt = btn.getAttribute('data-clipboard-text');
-                if (txt && txt.length > 500) return txt;
-
-                return '';
-            """)
-
-            length = len(transcript_text) if transcript_text else 0
-            log(f"📊 Length: {length}")
-
-            # Scroll (important for lazy load)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-            if transcript_text and length > 500:
-                log("✅ Transcript captured")
-                break
-
-            # Debug every 5 attempts
-            if attempt % 5 == 0:
-                filename = f"debug_{attempt}.png"
-                driver.save_screenshot(filename)
-                log(f"📸 Screenshot saved: {filename}")
-
-            time.sleep(4)
-
-        # Save file
-        with open("transcript.txt", "w", encoding="utf-8") as f:
-            f.write(transcript_text)
-
-        log("📄 Transcript saved")
-
-        # Save DB
-        log("💾 Saving to DB...")
-
         with closing(pymysql.connect(**DB_CONFIG)) as conn:
             with conn.cursor() as cursor:
 
                 sql = """
                 INSERT INTO wp_transcript (video_id, video_url, title, content, created_at)
                 VALUES (%s, %s, %s, %s, NOW())
-                ON DUPLICATE KEY UPDATE
-                    content = VALUES(content)
+                ON DUPLICATE KEY UPDATE content = VALUES(content)
                 """
 
                 cursor.execute(sql, (
@@ -156,19 +113,10 @@ def fetch_and_store(youtube_url):
         log("✅ DB saved")
 
     except Exception as e:
-        log(f"❌ ERROR: {e}")
-
-        driver.save_screenshot("error.png")
-        with open("error.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
-
-        log("📸 Debug files saved")
-
-    finally:
-        driver.quit()
-        log("🛑 Closed browser")
+        log(f"❌ DB Error: {e}")
 
 
+# ---------------- ENTRY ---------------- #
 if __name__ == "__main__":
     url_input = sys.argv[1] if len(sys.argv) > 1 else "https://www.youtube.com/watch?v=huW5sxhm3ow"
     fetch_and_store(url_input)
