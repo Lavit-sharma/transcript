@@ -16,16 +16,24 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Chrome + Chromedriver
+      # ✅ INSTALL CHROME PROPERLY
+      - name: Install Google Chrome
         run: |
           sudo apt-get update
-          sudo apt-get install -y google-chrome-stable chromium-chromedriver
+          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt install -y ./google-chrome-stable_current_amd64.deb
 
-      - name: Verify installation (DEBUG)
+      # ✅ INSTALL CHROMEDRIVER
+      - name: Install Chromedriver
         run: |
-          which google-chrome-stable
+          sudo apt-get install -y chromium-chromedriver
+
+      # ✅ DEBUG (VERY IMPORTANT)
+      - name: Verify Chrome
+        run: |
+          which google-chrome
+          google-chrome --version
           which chromedriver
-          google-chrome-stable --version
           chromedriver --version
 
       - name: Install Python dependencies
