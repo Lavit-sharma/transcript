@@ -16,10 +16,17 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Chrome + Driver
+      - name: Install Chrome + Chromedriver
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable chromium-chromedriver
+
+      - name: Verify installation (DEBUG)
+        run: |
+          which google-chrome-stable
+          which chromedriver
+          google-chrome-stable --version
+          chromedriver --version
 
       - name: Install Python dependencies
         run: |
